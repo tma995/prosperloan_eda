@@ -1,0 +1,433 @@
+Prosper Loan Data EDA 
+-----
+
+##### by MA, Tianxiang
+
+========================================================
+
+本项目主要分析来自Prosper的历史贷款数据（2006-2014）。此数据集包含 113,937 项贷款，每项贷款有 81 个变量，包括贷款⾦额、借款利率（或利率）、当前贷款状态、借款⼈收⼊、借款⼈就业状态、借款⼈信⽤历史及最新⽀付信息。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, packages}
+# 加载你最终使用的所有组件
+# 在这个代码块的分析中。
+
+# 注意，在这个代码块中，将参数 "echo" 设为假。
+# This prevents the code from displaying in the knitted HTML output.这可以避免代码混入 HTML 输出显示。
+# 应当在文件中，对所有代码块设为 echo=FALSE 。
+
+library(ggplot2)
+library(knitr)
+library(dplyr)
+library(GGally)
+library(gridExtra)
+library(scales)
+```
+
+```{r echo=FALSE, Load_the_Data}
+# 加载数据
+prosperLoanData <- read.csv('prosperLoanData.csv')
+
+# 处理部分离散特征的顺序
+q_lvl <- c("Q1 2006","Q2 2006","Q3 2006","Q4 2006",
+           "Q1 2007","Q2 2007","Q3 2007","Q4 2007",
+           "Q1 2008","Q2 2008","Q3 2008","Q4 2008",
+           "Q1 2009","Q2 2009","Q3 2009","Q4 2009",
+           "Q1 2010","Q2 2010","Q3 2010","Q4 2010",
+           "Q1 2011","Q2 2011","Q3 2011","Q4 2011",
+           "Q1 2012","Q2 2012","Q3 2012","Q4 2012",
+           "Q1 2013","Q2 2013","Q3 2013","Q4 2013",
+           "Q1 2014")
+prosperLoanData$LoanOriginationQuarter <- ordered(prosperLoanData$LoanOriginationQuarter,levels=q_lvl)
+
+s_lvl <- c("Cancelled","Completed","FinalPaymentInProgress",
+           "Current","Past Due (1-15 days)","Past Due (16-30 days)",
+           "Past Due (31-60 days)","Past Due (61-90 days)",
+           "Past Due (91-120 days)",
+           "Past Due (>120 days)","Defaulted","Chargedoff")
+prosperLoanData$LoanStatus <- ordered(prosperLoanData$LoanStatus,levels=s_lvl)
+
+i_lvl <- c("Not employed","$0","$1-24,999","$25,000-49,999",
+           "$50,000-74,999","$75,000-99,999","$100,000+","Not displayed")
+prosperLoanData$IncomeRange <- ordered(prosperLoanData$IncomeRange,
+                                       levels=i_lvl)
+
+ldp <- subset(prosperLoanData,
+              as.Date(LoanOriginationDate) >= as.Date('2009-07-01'))
+ldb <- subset(prosperLoanData,
+              as.Date(LoanOriginationDate) < as.Date('2009-07-01'))
+
+str(prosperLoanData)
+```
+
+
+# 单变量绘图选择
+##### 业务量增长趋势
+* 从时间轴上看，，`Prosper`的业务以`2009`年为界明显分为两段，中间应该是经历了业务调整，从06年开始的增长趋势中断，贷款业务暂停；从`2009-07-01`开始，新业务重新启动，并呈指数型增长。
+* 因为前后两部分贷款数据可能存在各方面的差异（风控标准、贷款质量、客户群体，等），后续主要研究`2009-07-01`之后的数据；
+
+```{r echo=FALSE}
+ggplot(data=prosperLoanData,aes(x=as.Date(LoanOriginationDate))) +
+  geom_histogram(color = I('white'),bins = 50) 
+```
+
+
+##### 贷款质量总体分布
+从贷款状态分布来看，绝大部分贷款都属于正常状态，少数出现还款逾期；累计来看，少数贷款出现违约和坏账的情况。
+
+```{r echo=FALSE, Univariate_Plots}
+ggplot(aes(x=LoanStatus),data = ldp) +
+  geom_bar() +
+  scale_y_log10(breaks=c(10,100,1000,6000,15000,40000)) +
+  theme_bw(base_size = 10) +
+  theme(axis.text.x=element_text(angle=45,hjust=1),
+        axis.title.x=element_blank())
+```
+
+
+##### 贷款额度、预期收益分布
+* 贷款额度在1000到35000之间，额度越小分布越多；在5000的整数倍额度分布普遍比其他金额多；
+* 贷款利率主要分布在0.04到0.36；
+* 预期收益大部分集中在0.05到0.2之间，存在少数预期收益为负的贷款；
+* 预期损失大多集中在0.2以下，但有极少数的预期损失达到0.366；
+
+```{r echo=FALSE, warning=FALSE}
+create_histplot <- function(varname, binwidth = 0.1) {
+  return(ggplot(aes_string(x = varname), data = ldp) + 
+           geom_histogram(color = I('white'),binwidth = binwidth))
+}
+
+s1 <- create_histplot('LoanOriginalAmount',1000) + scale_y_log10() 
+s2 <- create_histplot('BorrowerRate',0.02)
+s3 <- create_histplot('EstimatedReturn',0.02) + scale_y_log10() 
+s4 <- create_histplot('EstimatedLoss',0.02)
+
+grid.arrange(s1,s2,s3,s4,ncol=2)
+```
+
+##### 贷款人特征：收入、按时还款率、第三方信用分
+* 月收入分布接近幂律分布，大多数借款人集中在较低的收入段（小于20000）；
+* 按时还款率越低，分布数量越少，多数用户100%守时；
+* 第三方信用分，大多集中在650到750之间；
+
+```{r echo=FALSE, warning=FALSE}
+s5 <- create_histplot('StatedMonthlyIncome',2000) + 
+  scale_y_log10() + 
+  coord_cartesian(xlim = c(0,90000))
+s6 <- create_histplot('TradesNeverDelinquent..percentage.',0.05) + 
+  scale_y_log10()
+s7 <- create_histplot('CreditScoreRangeUpper',20) 
+s8 <- create_histplot('as.numeric(ProsperScore)',1) + 
+  scale_x_continuous(breaks = seq(1,11,1))
+grid.arrange(s5,s6,s7,s8,ncol = 2)
+```
+
+##### 风险评分
+* ProsperScore和ProsperRating在文档中并未有更多的概念介绍，我理解都为风险评估分数；评估评分越高，表示所评估对象表现越好，也即风险越小；两者从取值分布上比较均衡，呈现出中间多两头少的趋势；
+
+```{r echo=FALSE, warning=FALSE}
+create_histplot('as.numeric(ProsperRating..numeric.)',1) + 
+  scale_x_continuous(breaks = seq(1,7,1))
+```
+
+
+
+# 单变量分析
+
+### 你的数据集结构是什么？
+此数据集包含113,937项贷款，每项贷款有 81个变量，包括贷款⾦额、借款利率（或利率）、当前贷款状态、借款⼈收⼊、借款⼈就业状态、借款⼈信⽤历史及最新⽀付信息。
+
+### 你的数据集内感兴趣的主要特性有哪些？
+我感兴趣的主要是**风险**和**收益**两类特征：
+
+* 风险即前面提到的风险评估分数，ProsperScore和ProsperRating；
+* 收益即贷款利率相关，BorrowerRate，EstimatedReturn，也包括EstimatedLoss等；
+
+### 你认为数据集内哪些其他特征可以帮助你探索兴趣特点？
+* 风险和收益，在理论上就有着联系，研究其相互关系可以直观的帮助理解；
+* 借款人（用户）的还款能力、还款意愿（行为），在一个完善的风控体系中，是会反映在风险评分中的，从而也进一步影响贷款额度和质量；本数据集中准备探索的有：IsBorrowerHomeowner，TradesNeverDelinquent..percentage.，IncomeRange，CreditScoreRangeUpper，等；
+
+### 根据数据集内已有变量，你是否创建了任何新变量？
+数据集内已有变量已经足够多，暂时未创建新变量；
+
+### 在已经探究的特性中，是否存在任何异常分布？你是否对数据进行一些操作，如清洁、调整或改变数据的形式？如果是，你为什么会这样做？
+* 暂未发现异常分布；
+* 为了可视化展示的清洗，对部分离散特征的顺序进行了调整，如LoanOriginationQuarter，LoanStatus，IncomeRange；
+* 同时为了后续分析，我也把2009-07-01之后对贷款数据单独提取出来。
+
+
+
+# 双变量绘图选择
+##### 风险评分 vs 收益相关特征
+* 风险评分与预期损失有很强的线性关系，随着评估分数的降低，预计损失升高；当评分为最低一级时，预期损失有可能很高，最高达到0.366；
+* 风险评分与贷款利率也有一定的线性关系，评分越低，贷款利率整体在上升；
+* 从预期收益来看，随着评分降低，由于贷款利率的上升，平均预期收益率也有所上升；但当评分降到最低一级时，由于预期损失的大幅增加，预期收益也将相应下降，部分数据显示还有负收益的可能。
+
+```{r echo=FALSE, Bivariate_Plots}
+# 风险高--利率高，预计损失、收益高
+t1 <- ggplot(data = subset(ldp,!is.na(ProsperRating..numeric.)),
+       aes(x=factor(ProsperRating..numeric.),y=EstimatedLoss)) +
+  geom_boxplot()
+
+t2 <- ggplot(data = subset(ldp,!is.na(ProsperRating..numeric.)),
+       aes(x=factor(ProsperRating..numeric.),y=BorrowerRate)) +
+  geom_boxplot()
+
+t3 <- ggplot(data = subset(ldp,!is.na(ProsperRating..numeric.)),
+       aes(x=factor(ProsperRating..numeric.),y=EstimatedReturn)) +
+  geom_boxplot()
+
+grid.arrange(t1,t2,t3,ncol=2)
+```
+
+##### 风险评分 vs 贷款质量
+* 由下图可，见评分越低，贷款中还款逾期，违约，坏账的比例越高；
+
+```{r echo=FALSE}
+ggplot(data=subset(ldp,!is.na(ProsperRating..numeric.)),
+       aes(x=ProsperRating..numeric.)) +
+  geom_bar(aes(fill=LoanStatus),position = 'fill')
+```
+
+##### 风险评分 vs 用户特征
+* 收入水平（还款能力）：StatedMonthlyIncome
+* 按时还款比例（还款意愿）：TradesNeverDelinquent..percentage.
+* 第三方征信分数（信用度）：CreditScoreRangeUpper
+* 从上述三项借款人维度的特征来看，随着风险评分的升高，用户质量更好，其特征值分布也有着明显的升高趋势；
+* 一个奇怪的地方是，在风险评分最低一级，第三方征信分数分布反而不是最低；这其中存在第三方机构的征信评分在业务或评估标准上与Prosper有差别的可能。
+
+```{r echo=FALSE}
+t1 <- ggplot(data = subset(ldp,!is.na(ProsperRating..numeric.)),
+       aes(x=factor(ProsperRating..numeric.),
+           y=TradesNeverDelinquent..percentage.)) +
+  geom_boxplot()
+
+t2 <- ggplot(data = subset(ldp,!is.na(ProsperRating..numeric.)),
+       aes(x=factor(ProsperRating..numeric.),y=CreditScoreRangeUpper)) +
+  geom_boxplot()
+
+t3 <- ggplot(aes(x=factor(ProsperRating..numeric.),y=StatedMonthlyIncome),
+       data = subset(ldp,!is.na(ProsperRating..numeric.))) +
+  geom_boxplot() +
+  coord_cartesian(ylim = c(0,10000))
+
+grid.arrange(t1,t2,t3,ncol=2)
+```
+
+##### 用户特征 vs 贷款利率
+* 上述展示了风险评分和贷款利率、用户特征之间的关系；单独看用户特征和贷款利率之间的关系，可以得到：借款人还款能力、还款意愿、信用分越高，Prosper给出的贷款利率大概率上越低。
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+tmp1 <- ggplot(data = subset(ldp,!is.na(TradesNeverDelinquent..percentage.) & !is.na(BorrowerRate)),
+       aes(x=TradesNeverDelinquent..percentage.,
+           y=BorrowerRate)) +
+  geom_jitter(alpha=1/100,color='orange') +
+  geom_line(stat='summary',fun.y=median,linetype=2,color='blue') +
+  geom_smooth(method = 'lm',color='red') +
+  scale_x_continuous(limits = c(0.2,1),breaks = seq(0.2,1,0.1)) 
+ 
+tmp2 <- ggplot(aes(x=CreditScoreRangeUpper,y=BorrowerRate),
+               data=subset(ldp,
+                           !is.na(CreditScoreRangeUpper) 
+                           & !is.na(BorrowerRate))) +
+  geom_jitter(alpha=1/100,color='orange') +
+  geom_line(stat='summary',fun.y=mean,linetype=2,color='blue') +
+  geom_smooth(method = 'lm',color='red') 
+
+tmp3 <- ggplot(aes(x=StatedMonthlyIncome,y=BorrowerRate),
+               data=subset(ldp,
+                           !is.na(StatedMonthlyIncome) 
+                           & !is.na(BorrowerRate)))+
+  geom_jitter(alpha=1/100,color='orange') +
+  geom_smooth(color='red') +
+  scale_x_continuous(limits = c(0,15000))
+
+grid.arrange(tmp1,tmp2,tmp3,ncol=2)
+```
+
+
+##### 相关性分析
+* 下图抽样数据，综合列举了现有连续变量的相关性，可见风险评分`ProsperRating..numeric.`，预期损失`EstimatedLoss`，贷款利率`BorrowerRate`，三者之间的相关性最强；
+* 单独计算上述三个变量在全量数据的相关性，可见风险评分`ProsperRating..numeric.`与贷款利率`BorrowerRate`的相关性最强，负相关系数为`-0.93`；
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+columns_list <- c('LoanOriginalAmount',
+                  'BorrowerRate',
+                  'EstimatedReturn',
+                  'EstimatedLoss',
+                  'StatedMonthlyIncome',
+                  'TradesNeverDelinquent..percentage.',
+                  'CreditScoreRangeUpper',
+                  'ProsperRating..Alpha.',
+                  'ProsperScore')
+
+loanData_samp <- na.omit(ldp)
+loanData_samp <- loanData_samp[sample(1:nrow(ldp), 10000), columns_list]
+loanData_samp$ProsperRating..Alpha. <- 
+  as.numeric(loanData_samp$ProsperRating..Alpha.)
+
+ggcorr(loanData_samp,label_alpha = TRUE,label = TRUE, legend.position = 'none',
+       size = 2, hjust = 0.75) 
+```
+
+```{r}
+post_2009_no_na <- na.omit(ldp)
+cor(as.numeric(post_2009_no_na$ProsperRating..numeric.), 
+    post_2009_no_na$EstimatedLoss)
+
+cor(as.numeric(post_2009_no_na$ProsperRating..numeric.), 
+    post_2009_no_na$BorrowerRate)
+
+cor(as.numeric(post_2009_no_na$EstimatedLoss), 
+    post_2009_no_na$BorrowerRate)
+```
+
+# 双变量分析
+
+### 探讨你在这部分探究中观察到的一些关系。这些感兴趣的特性与数据集内其他特性有什么区别？
+* 从前面的分析，风险评分和贷款利率、预期损失、预期收益都呈负线性相关，这也印证了常识“风险越高，收益越大”；
+* 然而从预期收益看，虽然随评分降低收益增加，但增幅在缓慢减弱；当评分在最低一级时，由于预期损失的大幅增加，平均预期收益不增反降，出现净损失的概率反而增大；
+
+### 你是否观察到主要特性与其他特性之间的有趣关系？
+* 主要特征与贷款质量，用户质量也有着紧密联系；
+* 风险评分直接预测了贷款质量：评分越低，贷款出现逾期、违约、坏账的概率上升；
+* 风险评分和用户质量呈线性正相关，评分越高，用户收入、按时还款率、第三方征信分数也都越高；
+* 从收益的角度，贷款利率总体与用户质量呈反比，当用户质量越高，Prosper给出的贷款利率大概率上越低。
+
+### 你发现最强的关系是什么？
+我发现的最强的线性关系，是风险评分`ProsperRating..numeric.`与贷款利率`BorrowerRate`，线性负相关系数`-0.93`；
+
+
+
+
+# 多变量绘图选择
+##### 贷款金额增长趋势 vs 房产
+* 随时间推进，每单贷款金额在逐步升高；
+* 在上述过程中，有房产的借款人普遍能比无房产的借款人贷到更多金额。
+
+```{r echo=FALSE, Multivariate_Plots}
+amt1 <- ggplot(aes(x=LoanOriginationQuarter,y=LoanOriginalAmount),
+       data = ldp) +
+  geom_boxplot() +
+  theme_bw(base_size = 10) +
+  theme(axis.text.x=element_text(angle=45,hjust=1),
+        axis.title.x=element_blank())
+
+amt2 <- ggplot(aes(x=LoanOriginationQuarter,
+                   y=LoanOriginalAmount,
+                   color=IsBorrowerHomeowner),
+       data = ldp) +
+  geom_boxplot() +
+  theme_bw(base_size = 10) +
+  theme(axis.text.x=element_text(angle=45,hjust=1),
+        axis.title.x=element_blank())
+
+grid.arrange(amt1,amt2,ncol=1)
+```
+
+
+
+##### 风险评分 vs 贷款利率
+* 这里把两类评分都考虑进来，ProsperScore和ProsperRating并不完全等价，但是增减的趋势一致；
+* 对于贷款利率，ProsperScore和ProsperRating两个特征同时也有相互促进的作用，当两者分数同时很低时，贷款利率水平达到最高，反之亦然；
+
+```{r echo=FALSE}
+ggplot(data=subset(ldp,!is.na(ProsperRating..numeric.) & !is.na(ProsperScore)), 
+       aes(x = factor(ProsperScore), 
+           y = factor(ProsperRating..numeric.),
+           color=BorrowerRate)) + 
+  geom_jitter(alpha=1/2)
+```
+
+
+##### 收入水平 vs 贷款额度 vs 贷款质量
+* 由下图，从贷款总量分布来看，Prosper基本只贷给年收入$25000以上的用户，小于或者没有工作的借款人，成功贷款的几率很小；
+* 从贷款质量上看，收入越高，逾期+违约+坏账的总金额比例越低；
+
+```{r echo=FALSE}
+ggplot(data=subset(ldp,!is.na(IncomeRange)),
+       aes(x=IncomeRange,y=LoanOriginalAmount)) +
+  geom_bar(aes(fill=LoanStatus),position = 'stack',stat = 'summary',fun.y=sum) +
+  theme_bw(base_size = 10) +
+  theme(axis.text.x=element_text(angle=45,hjust=1),
+        axis.title.x=element_blank())
+```
+
+
+
+# 多变量分析
+
+###  探讨你在这部分探究中观察到的一些关系。通过观察感兴趣的特性，是否存在相互促进的特性？
+* 部分特征间是存在相互促进特性的。前述我们得到风险评分ProsperRating与贷款利率强相关；而当把另外一个风险评分ProsperScore纳入分析时，两者虽然不完全等价，但是增减的趋势一致；
+* 另外一个相互促进的例子是贷款利率BorrowerRate和预期损失EstimatedLoss，当预期损失越高时，Prosper给出的贷款利率也会相应升高。
+
+### 这些特性之间是否存在有趣或惊人的联系呢？
+* 前面提到的四类特性，风险、收益、贷款质量、用户质量，两两间都存在联系，这也驱动了金融科技领域的发展；
+* 风险和收益并存；（预期损失和预期收益正相关）
+* 风险评分预测贷款质量；（评分和坏账率负相关）
+* 用户质量影响风险评分，也影响贷款质量；（收入水平、按时还款行为，与评分正相关，与坏账率负相关）
+* 风控策略倾向于在低风险的区间最大化收益；（贷款大多交给高收入人群，以较低的贷款利率和低风险，来获取稳定收益）
+
+### 选项：你是否创建过数据集的任何模型？讨论你模型的优缺点。
+我认为这个数据集更多在于探索和理解，这里并未构建模型。
+
+------
+
+# 定稿图与总结
+
+### 绘图一
+```{r echo=FALSE, Plot_One}
+ggplot(data = subset(ldp,!is.na(ProsperRating..numeric.)),
+       aes(x=factor(ProsperRating..numeric.),y=EstimatedReturn)) +
+  geom_boxplot() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(title = "Risk vs Return")
+```
+
+### 描述一
+* 上图可以很好的看出风险和回报之间的关系。`预期回报`可以近似等于`贷款利率`-`预期损失`，整体上说风险越大（评分越低），预期回报升高。
+* 当评分太低时，由于预期损失的大幅增加，预期回报整体下降，回报为负的概率升高。
+
+### 绘图二
+```{r echo=FALSE, Plot_Two}
+ggplot(aes(x=LoanOriginationQuarter,
+           y=LoanOriginalAmount,
+           color=IsBorrowerHomeowner),
+       data = ldp) +
+  geom_boxplot() +
+  theme_bw(base_size = 10) +
+  theme(axis.text.x=element_text(angle=45,hjust=1),
+        axis.title.x=element_blank(),
+        legend.position = 'top',
+        plot.title = element_text(hjust = 0.5)) +
+  labs(title = "Growth of Loan Amount")
+```
+
+### 描述二
+* 上图可看出Prosper自2009年7月以来的贷款业务增长情况，以及其对借款人有无房产的偏好区别。
+* 总体来说，单比贷款的贷款额度，随时间逐渐升高；而在这个过程中，贷款给有房产客户的金额、增幅，都普遍大于无房产客户。
+* 因此房产作为用户还款能力的一个维度，在一定程度上影响着Prosper的风控决策。
+
+### 绘图三
+```{r echo=FALSE, Plot_Three}
+ggplot(data=subset(ldp,!is.na(IncomeRange)),
+       aes(x=IncomeRange,y=LoanOriginalAmount)) +
+  geom_bar(aes(fill=LoanStatus),position = 'stack',stat = 'summary',fun.y=sum) +
+  theme_bw(base_size = 10) +
+  theme(axis.text.x=element_text(angle=45,hjust=1),
+        axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5)) +
+  labs(title = "Loan Distribution by Borrower Income Range")
+```
+
+### 描述三
+* 上图可看出，贷款金额基本都集中在年收入$25000以上的用户，小于或者没有工作的借款人，成功贷款的几率很小；
+* 从贷款质量上看，收入越高，逾期+违约+坏账的总金额比例越低；
+* 收入水平也是用户还款能力的一个重要维度，不仅直接反映出单比贷款的风险程度，也很大程度影响了Prosper的风控决策；
+* Prosper的风控策略倾向于在低风险的区间最大化收益；（贷款大多交给高收入人群，以较低的贷款利率和低风险，来获取稳定收益）
+
+------
+
+# 反思
+* 在本项目中，我尝试去探索互联网金融领域风险、收益间的数据及其关联。由于数据集特征较多（81个），理解每个特征的含义，并挑选感兴趣且值得探索的特征，是一件很有难度的事情。
+* 值得高兴的是，在探索过程中，我逐渐找到了几类具有代表性的特征，如贷款质量、风控评分、用户质量、预期回报、等，他们相互都有着联系，也共同驱动着业务的增长。
+* 当然分析之后，还有很多工作可以继续挖掘：首先是深入分析其他特征，从不同的角度发现数据内在的关联，并产生洞见。另外也可以从算法模型方向入手，在确定需预测标签的前提下，建模并提升预测准确率，更好的为风控决策提供帮助。
