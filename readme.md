@@ -15,7 +15,7 @@
 -----
 
 ### Data Story Telling (Tableau Public)
-* Tableau Story: https://public.tableau.com/profile/matianxiang#!/vizhome/ProsperLoan_Analysis/Story1
+* Tableau Story: https://public.tableau.com/profile/matianxiang#!/vizhome/ProsperLoan_Story/Story1
 * `ProsperLoan_Story.md`
 * `ProsperLoan_Analysis.twbx`
 
