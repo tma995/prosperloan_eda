@@ -1,7 +1,7 @@
 
 # Tableau 项目: Prosper Loan
 
-* 项目链接: https://public.tableau.com/profile/matianxiang#!/vizhome/ProsperLoan_Analysis/Story1
+* 项目链接: https://public.tableau.com/profile/matianxiang#!/vizhome/ProsperLoan_Story/Story1
 
 -----
 ### 总结
